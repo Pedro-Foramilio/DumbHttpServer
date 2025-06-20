@@ -19,7 +19,7 @@ int main(void)
     int sock;
     int client_sock;
     struct sockaddr_in clientname;
-    socklen_t size;
+    socklen_t size = sizeof(clientname);
 
     sock = make_socket(PORT);
     if (listen(sock, 1) < 0) {
@@ -27,18 +27,19 @@ int main(void)
         exit (EXIT_FAILURE);
     }
 
-    //while
-    size = sizeof(clientname);
-    client_sock = accept(sock, (struct sockaddr *) &clientname, &size);
-    if (client_sock < 0) 
+    while (1)
     {
-        perror("accept");
-        exit (EXIT_FAILURE);
+        client_sock = accept(sock, (struct sockaddr *) &clientname, &size);
+        if (client_sock < 0) 
+        {
+            perror("accept");
+            exit (EXIT_FAILURE);
+        }
+        fprintf(stderr, "Server: connect from host %s, port %d.\n",
+                             inet_ntoa(clientname.sin_addr),
+                             ntohs (clientname.sin_port));
+        read_from_client(client_sock);
     }
-    fprintf(stderr, "Server: connect from host %s, port %d.\n",
-                         inet_ntoa(clientname.sin_addr),
-                         ntohs (clientname.sin_port));
-    read_from_client(client_sock);
     close(sock);
     return 0;
 } 
