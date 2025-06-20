@@ -110,7 +110,7 @@ int read_from_client (int filedes)
     
     if (nbytes <= 0) perror("read");
     
-    else fprintf(stderr, "Server: got message: `%s'\n", buffer);
+    else fprintf(stderr, "Server: Connection on fd %d sent message: `%s'\n", filedes, buffer);
     
     return nbytes;
 }
