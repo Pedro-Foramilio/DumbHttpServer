@@ -5,3 +5,4 @@
 # Explanation:
 # /[!.]* matches files in the root directory that do not start with a dot and have no extension.
 # It does not match files like .gitignore or .env
+.vscode/
