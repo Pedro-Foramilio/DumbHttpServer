@@ -7,6 +7,8 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/select.h>
 
 #define PORT 6666
 #define BUFFER_SIZE 1024
@@ -20,8 +22,17 @@ int main(void)
     int client_sock;
     struct sockaddr_in clientname;
     socklen_t size = sizeof(clientname);
+    fd_set master_set, read_fds;
 
     sock = make_socket(PORT);
+
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
+    int fdmax = sock;
+    FD_ZERO(&master_set);
+    FD_SET(sock, &master_set);
+
     if (listen(sock, 1) < 0) {
         perror("listen");
         exit (EXIT_FAILURE);
@@ -29,16 +40,39 @@ int main(void)
 
     while (1)
     {
-        client_sock = accept(sock, (struct sockaddr *) &clientname, &size);
-        if (client_sock < 0) 
-        {
-            perror("accept");
-            exit (EXIT_FAILURE);
+        read_fds = master_set;
+
+        if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) < 0) {
+            perror("select");
+            exit(EXIT_FAILURE);
         }
-        fprintf(stderr, "Server: connect from host %s, port %d.\n",
-                             inet_ntoa(clientname.sin_addr),
-                             ntohs (clientname.sin_port));
-        read_from_client(client_sock);
+
+        for (int i = 0; i <= fdmax; i++) 
+        {
+            if (! FD_ISSET(i, &read_fds)) continue;
+
+            if (i == sock)
+            { //new connection
+                int newfd = accept(sock, (struct sockaddr *) &clientname, &size);
+                if (newfd < 0) 
+                {
+                    perror("accept");
+                    exit(EXIT_FAILURE);
+                }
+
+                FD_SET(newfd, &master_set);
+                if (newfd > fdmax) fdmax = newfd;
+                fprintf(stderr, "New connection on fd %d\n", newfd);
+            } else
+            { //data from client
+                int nbytes = read_from_client(i);
+                if (nbytes <= 0)
+                {
+                    close(i);
+                    FD_CLR(i, &master_set);
+                }
+            }
+        }
     }
     close(sock);
     return 0;
@@ -73,17 +107,10 @@ int read_from_client (int filedes)
     int nbytes;
 
     nbytes = read(filedes, buffer, sizeof(buffer));
-    if (nbytes < 0)
-    {
-        perror("read");
-        exit(EXIT_FAILURE);
-    } else if (nbytes == 0)
-    {
-        return -1;
-    } else
-    {
-        fprintf (stderr, "Server: got message: `%s'\n", buffer);
-        return 0;
-    }
-
+    
+    if (nbytes <= 0) perror("read");
+    
+    else fprintf(stderr, "Server: got message: `%s'\n", buffer);
+    
+    return nbytes;
 }
