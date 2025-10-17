@@ -9,12 +9,14 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <sys/select.h>
+#include <string.h>
 
 #define PORT 6666
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 2048
 
 int make_socket(uint16_t port);
-int read_from_client (int filedes);
+int read_and_handle_client (int filedes);
+void format_response_to_client(char *buffer, char *response);
 
 int main(void)
 {
@@ -65,7 +67,7 @@ int main(void)
                 fprintf(stderr, "New connection on fd %d\n", newfd);
             } else
             { //data from client
-                int nbytes = read_from_client(i);
+                int nbytes = read_and_handle_client(i);
                 if (nbytes <= 0)
                 {
                     close(i);
@@ -101,16 +103,39 @@ int make_socket(uint16_t port)
     return sock;
 }
 
-int read_from_client (int filedes)
+int read_and_handle_client (int filedes)
 {
     char buffer[BUFFER_SIZE];
     int nbytes;
+    char response[BUFFER_SIZE];
 
     nbytes = read(filedes, buffer, sizeof(buffer));
-    
-    if (nbytes <= 0) perror("read");
-    
-    else fprintf(stderr, "Server: Connection on fd %d sent message: `%s'\n", filedes, buffer);
-    
+
+    if (nbytes <= 0) {
+        if (nbytes == 0) {
+            fprintf(stderr, "Server: Connection on fd %d closed by peer\n", filedes);
+        } else {
+            perror("read");
+        }
+        return nbytes;
+    }
+
+    if (nbytes < (int)sizeof(buffer)) buffer[nbytes] = '\0';
+    else buffer[sizeof(buffer)-1] = '\0';
+
+    fprintf(stderr, "Server: Connection on fd %d sent message: \n`%s'\n", filedes, buffer);
+
+    format_response_to_client(buffer, response);
+
+    ssize_t wn = write(filedes, response, strlen(response));
+    if (wn < 0) {
+        perror("write");
+    }
+
     return nbytes;
+}
+
+void format_response_to_client(char *buffer, char *response)
+{
+    strcpy(response, "Server received your message: ");
 }

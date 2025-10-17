@@ -14,6 +14,7 @@
 #define BUFFER_SIZE 1024
 
 void write_to_server(int sock);
+void read_from_server(int sock);
 
 int main(void) 
 {
@@ -35,6 +36,9 @@ int main(void)
         exit(EXIT_FAILURE);
     }
     write_to_server (sock);
+
+    read_from_server(sock);
+
     close (sock);
     exit (EXIT_SUCCESS);
 }
@@ -49,5 +53,20 @@ void write_to_server(int sock)
         perror("write");
         exit(EXIT_FAILURE);
     }
+}
+
+void read_from_server(int sock)
+{
+    int nbytes;
+    char buffer[BUFFER_SIZE];
+
+    nbytes = read(sock, buffer, sizeof(buffer) - 1);
+    if (nbytes < 0) {
+        perror("read");
+        exit(EXIT_FAILURE);
+    }
+    
+    buffer[nbytes] = '\0'; // Null-terminate the string
+    printf("Received from server: %s\n", buffer);
 }
 
