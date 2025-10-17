@@ -12,6 +12,7 @@
 #include <string.h>
 
 #define PORT 6666
+#define DISCOVERY_PORT (PORT + 1)
 #define BUFFER_SIZE 2048
 
 int make_socket(uint16_t port);
@@ -21,6 +22,7 @@ void format_response_to_client(char *buffer, char *response);
 int main(void)
 {
     int sock;
+    int udp_sock;
     int client_sock;
     struct sockaddr_in clientname;
     socklen_t size = sizeof(clientname);
@@ -28,12 +30,33 @@ int main(void)
 
     sock = make_socket(PORT);
 
+    /* create UDP discovery socket and bind to DISCOVERY_PORT */
+    udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_sock < 0) {
+        perror("udp socket");
+        exit(EXIT_FAILURE);
+    }
+    struct sockaddr_in daddr;
+    daddr.sin_family = AF_INET;
+    daddr.sin_port = htons(DISCOVERY_PORT);
+    daddr.sin_addr.s_addr = INADDR_ANY;
+    if (bind(udp_sock, (struct sockaddr *)&daddr, sizeof(daddr)) < 0) {
+        perror("bind udp");
+        close(udp_sock);
+        exit(EXIT_FAILURE);
+    }
+
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
-    int fdmax = sock;
+    /* make udp socket non-blocking as well (optional) */
+    flags = fcntl(udp_sock, F_GETFL, 0);
+    fcntl(udp_sock, F_SETFL, flags | O_NONBLOCK);
+
+    int fdmax = sock > udp_sock ? sock : udp_sock;
     FD_ZERO(&master_set);
     FD_SET(sock, &master_set);
+    FD_SET(udp_sock, &master_set);
 
     if (listen(sock, 1) < 0) {
         perror("listen");
@@ -54,7 +77,7 @@ int main(void)
             if (! FD_ISSET(i, &read_fds)) continue;
 
             if (i == sock)
-            { //new connection
+            { // new TCP connection
                 int newfd = accept(sock, (struct sockaddr *) &clientname, &size);
                 if (newfd < 0) 
                 {
@@ -65,8 +88,24 @@ int main(void)
                 FD_SET(newfd, &master_set);
                 if (newfd > fdmax) fdmax = newfd;
                 fprintf(stderr, "New connection on fd %d\n", newfd);
+            } else if (i == udp_sock) {
+                /* discovery request on UDP */
+                char dbuf[256];
+                struct sockaddr_in from;
+                socklen_t fromlen = sizeof(from);
+                ssize_t n = recvfrom(udp_sock, dbuf, sizeof(dbuf)-1, 0, (struct sockaddr *)&from, &fromlen);
+                if (n > 0) {
+                    dbuf[n] = '\0';
+                    fprintf(stderr, "UDP discovery message from %s: %s\n", inet_ntoa(from.sin_addr), dbuf);
+                    if (strcmp(dbuf, "DISCOVER") == 0) {
+                        char reply[128];
+                        snprintf(reply, sizeof(reply), "SERVICE %d", PORT);
+                        ssize_t wn = sendto(udp_sock, reply, strlen(reply), 0, (struct sockaddr *)&from, fromlen);
+                        if (wn < 0) perror("sendto");
+                    }
+                }
             } else
-            { //data from client
+            { //data from TCP client
                 int nbytes = read_and_handle_client(i);
                 if (nbytes <= 0)
                 {
@@ -76,9 +115,10 @@ int main(void)
             }
         }
     }
+    close(udp_sock);
     close(sock);
     return 0;
-} 
+}
 
 int make_socket(uint16_t port)
 {

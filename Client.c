@@ -8,6 +8,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <sys/time.h>
 
 #define SERVER_ADDRESS "127.0.1"
 #define SERVER_PORT 6666
@@ -15,11 +16,16 @@
 
 void write_to_server(int sock);
 void read_from_server(int sock);
+int discover_servers(int discovery_port);
 
 int main(void) 
 {
     int sock;
     struct sockaddr_in servername;
+
+    /* try discovery first (will print any discovered servers) */
+    discover_servers(SERVER_PORT + 1);
+
     servername.sin_family = AF_INET;
     servername.sin_port = htons(SERVER_PORT);
     servername.sin_addr.s_addr = inet_addr(SERVER_ADDRESS);
@@ -68,5 +74,58 @@ void read_from_server(int sock)
     
     buffer[nbytes] = '\0'; // Null-terminate the string
     printf("Received from server: %s\n", buffer);
+}
+
+int discover_servers(int discovery_port)
+{
+    int dsock;
+    int yes = 1;
+    struct sockaddr_in baddr;
+    struct timeval tv;
+
+    dsock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (dsock < 0) {
+        perror("discovery socket");
+        return -1;
+    }
+
+    if (setsockopt(dsock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes)) < 0) {
+        perror("setsockopt SO_BROADCAST");
+        close(dsock);
+        return -1;
+    }
+
+    /* 1 second receive timeout */
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+    setsockopt(dsock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    memset(&baddr, 0, sizeof(baddr));
+    baddr.sin_family = AF_INET;
+    baddr.sin_port = htons(discovery_port);
+    baddr.sin_addr.s_addr = inet_addr("255.255.255.255");
+
+    const char *probe = "DISCOVER";
+    ssize_t wn = sendto(dsock, probe, strlen(probe), 0, (struct sockaddr *)&baddr, sizeof(baddr));
+    if (wn < 0) {
+        perror("sendto discovery");
+        close(dsock);
+        return -1;
+    }
+
+    fprintf(stderr, "Discovery probe sent, waiting for replies...\n");
+
+    while (1) {
+        char buf[256];
+        struct sockaddr_in from;
+        socklen_t fromlen = sizeof(from);
+        ssize_t n = recvfrom(dsock, buf, sizeof(buf)-1, 0, (struct sockaddr *)&from, &fromlen);
+        if (n < 0) break; /* timeout or error -> stop */
+        buf[n] = '\0';
+        fprintf(stderr, "Discovered server %s -> %s\n", inet_ntoa(from.sin_addr), buf);
+    }
+
+    close(dsock);
+    return 0;
 }
 
