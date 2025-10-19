@@ -16,15 +16,18 @@
 
 void write_to_server(int sock);
 void read_from_server(int sock);
-int discover_servers(int discovery_port);
+int discover_servers(int discovery_port, int *servicePortList);
+int initializeServiceList(int *servicePortList);
 
 int main(void) 
 {
     int sock;
+    int servicePortList[9999];
+    initializeServiceList(servicePortList);
     struct sockaddr_in servername;
-
+   
     /* try discovery first (will print any discovered servers) */
-    discover_servers(SERVER_PORT + 1);
+    discover_servers(SERVER_PORT + 1, servicePortList);
 
     servername.sin_family = AF_INET;
     servername.sin_port = htons(SERVER_PORT);
@@ -41,7 +44,7 @@ int main(void)
         perror("connect");
         exit(EXIT_FAILURE);
     }
-    write_to_server (sock);
+    write_to_server(sock);
 
     read_from_server(sock);
 
@@ -76,7 +79,7 @@ void read_from_server(int sock)
     printf("Received from server: %s\n", buffer);
 }
 
-int discover_servers(int discovery_port)
+int discover_servers(int discovery_port, int *servicePortList)
 {
     int dsock;
     int yes = 1;
@@ -116,6 +119,7 @@ int discover_servers(int discovery_port)
     fprintf(stderr, "Discovery probe sent, waiting for replies...\n");
 
     while (1) {
+        int port = -1;
         char buf[256];
         struct sockaddr_in from;
         socklen_t fromlen = sizeof(from);
@@ -123,9 +127,25 @@ int discover_servers(int discovery_port)
         if (n < 0) break; /* timeout or error -> stop */
         buf[n] = '\0';
         fprintf(stderr, "Discovered server %s -> %s\n", inet_ntoa(from.sin_addr), buf);
+        if (sscanf(buf, "SERVICE %4d", &port) == 1) 
+        {
+            // Store the discovered port in the servicePortList
+            if (port >= 0 && port < 9999) {
+                printf("Storing discovered service port: %d\n", port);
+                servicePortList[port] = port;
+            }
+        }
     }
 
     close(dsock);
     return 0;
 }
+
+int initializeServiceList(int *servicePortList)
+{
+    for (int i = 0; i < 9999; i++) {
+        servicePortList[i] = -1;
+    }
+    return 0;
+} 
 
